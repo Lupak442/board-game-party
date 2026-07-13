@@ -191,7 +191,10 @@ io.on('connection', (socket) => {
         throw new Error("GEMINI_API_KEY is not set.");
       }
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const prompt = `주제 '${topic}'에 관련된 단어 딱 1개만 명사 형태로 추천해줘. 부가 설명 없이 단어만 대답해.`;
+      const prompt = `당신은 라이어 게임의 제시어 출제자입니다.
+사용자가 '${topic}'라는 주제(카테고리)를 주면, 해당 주제에 속하는 구체적이고 대중적인 명사(단어) 딱 1개만 무작위로 추천해 주세요.
+예시) 주제가 '과일'이면 '사과', 주제가 '국가이름'이면 '호주', 주제가 '직업'이면 '경찰관' 등.
+절대 카테고리 이름 자체를 말하거나 부가 설명을 붙이지 말고, 오직 구체적인 단어 1개만 대답하세요.`;
       const result = await model.generateContent(prompt);
       liarGame.secretWord = result.response.text().trim();
     } catch (e) {
