@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -327,6 +328,20 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n=========================================`);
   console.log(`Server listening on port ${PORT}`);
+  console.log(`\n[접속 가능한 주소]`);
+  
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      // IPv4이고 내부망(로컬호스트 제외) IP 주소만 출력
+      if (net.family === 'IPv4' && !net.internal) {
+        console.log(`👉 친구들 접속용 (같은 와이파이): http://${net.address}:${PORT}`);
+      }
+    }
+  }
+  console.log(`👉 내 폰에서 접속할 때: http://localhost:${PORT}`);
+  console.log(`=========================================\n`);
 });
