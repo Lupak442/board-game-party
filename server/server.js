@@ -336,9 +336,14 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
-      // IPv4이고 내부망(로컬호스트 제외) IP 주소만 출력
+      // IPv4이고 내부망(로컬호스트)이 아닌 경우
       if (net.family === 'IPv4' && !net.internal) {
-        console.log(`👉 친구들 접속용 (같은 와이파이): http://${net.address}:${PORT}`);
+        // 와이파이나 핫스팟에서 주로 쓰이는 사설 IP 대역만 필터링 (192.168.*, 10.*, 172.16~31.*)
+        if (net.address.startsWith('192.168.') || 
+            net.address.startsWith('10.') || 
+            /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(net.address)) {
+          console.log(`👉 친구들 접속용 (같은 와이파이): http://${net.address}:${PORT}`);
+        }
       }
     }
   }
