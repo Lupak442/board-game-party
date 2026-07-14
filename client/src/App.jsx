@@ -37,6 +37,7 @@ function App() {
   const [liarGameInfo, setLiarGameInfo] = useState({});
   const [speedQuizInfo, setSpeedQuizInfo] = useState({});
   const [guessWord, setGuessWord] = useState('');
+  const [manualWords, setManualWords] = useState('');
 
   useEffect(() => {
     socket.on('joined', (u) => setUser(u));
@@ -370,7 +371,21 @@ function App() {
                   style={{width: '100%', marginBottom: '1.5rem', accentColor: '#10b981'}}
                 />
                 
-                <button onClick={() => socket.emit('goSpeedTopic')}>주제 선정하기</button>
+                <label style={{display: 'block', marginBottom: '0.5rem', marginTop: '1.5rem'}}>출제 방식 선택</label>
+                <div style={{display: 'flex', gap: '0.5rem', marginBottom: '1.5rem'}}>
+                  <button 
+                    style={{flex: 1, background: speedQuizInfo?.mode === 'ai' ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)', border: speedQuizInfo?.mode === 'ai' ? 'none' : '1px solid rgba(255,255,255,0.2)'}}
+                    onClick={() => socket.emit('setSpeedMode', 'ai')}
+                  >🤖 AI 자동 출제</button>
+                  <button 
+                    style={{flex: 1, background: speedQuizInfo?.mode === 'manual' ? 'var(--primary-color)' : 'rgba(255,255,255,0.1)', border: speedQuizInfo?.mode === 'manual' ? 'none' : '1px solid rgba(255,255,255,0.2)'}}
+                    onClick={() => socket.emit('setSpeedMode', 'manual')}
+                  >✍️ 팀별 직접 출제</button>
+                </div>
+                
+                <button onClick={() => socket.emit(speedQuizInfo?.mode === 'manual' ? 'goSpeedManual' : 'goSpeedTopic')}>
+                  {speedQuizInfo?.mode === 'manual' ? '문제 출제하러 가기' : '주제 선정하기'}
+                </button>
               </div>
             )}
             {!isHost && <p style={{marginTop: '2rem'}}>방장이 팀과 시간을 설정 중입니다...</p>}
@@ -401,6 +416,74 @@ function App() {
             <p style={{marginTop: '1rem'}}>AI가 주제에 맞는 {speedQuizInfo?.wordCountSetting || 24}개의 단어를<br/>열심히 생성하고 있습니다.</p>
           </div>
         )}
+
+        {gameState === 'speed_manual_input' && (() => {
+          const requiredCount = Math.floor((speedQuizInfo?.wordCountSetting || 24) / 2);
+          const currentCount = manualWords.split(',').filter(w => w.trim().length > 0).length;
+          const myTeam = speedQuizInfo?.teams?.[user.id];
+          const hasSubmitted = myTeam === 'A' ? speedQuizInfo?.submittedA : (myTeam === 'B' ? speedQuizInfo?.submittedB : false);
+          
+          return (
+            <>
+              <h2>직접 출제 모드</h2>
+              <p style={{color: '#ccc', marginBottom: '2rem'}}>각 팀에서 낼 문제를 쉼표(,)로 구분해서 적어주세요!</p>
+              
+              {isHost && (
+                <div style={{background: 'rgba(255,255,255,0.1)', padding: '1rem', borderRadius: '15px', marginBottom: '2rem'}}>
+                  <h3>방장 현황판</h3>
+                  <div style={{display: 'flex', gap: '1rem', marginTop: '1rem'}}>
+                    <div style={{flex: 1, color: speedQuizInfo?.submittedA ? '#22c55e' : '#f43f5e'}}>A팀: {speedQuizInfo?.submittedA ? '제출 완료 ✅' : '작성 중 ✍️'}</div>
+                    <div style={{flex: 1, color: speedQuizInfo?.submittedB ? '#22c55e' : '#f43f5e'}}>B팀: {speedQuizInfo?.submittedB ? '제출 완료 ✅' : '작성 중 ✍️'}</div>
+                  </div>
+                  {speedQuizInfo?.submittedA && speedQuizInfo?.submittedB && (
+                    <button style={{marginTop: '1rem', background: '#22c55e'}} onClick={() => socket.emit('goSpeedReadyFromManual')}>타이머 화면으로 이동 ➡️</button>
+                  )}
+                </div>
+              )}
+
+              {myTeam ? (
+                hasSubmitted ? (
+                  <div style={{padding: '3rem 1rem', background: 'rgba(34,197,94,0.1)', borderRadius: '15px'}}>
+                    <h3 style={{color: '#22c55e', margin: 0}}>우리 팀 문제 제출 완료! ✅</h3>
+                    <p style={{marginTop: '1rem'}}>상대 팀이 모두 작성할 때까지 기다려주세요.</p>
+                  </div>
+                ) : (
+                  <div style={{textAlign: 'left'}}>
+                    <h3 style={{marginBottom: '1rem', color: myTeam === 'A' ? 'var(--accent-color)' : '#3b82f6'}}>
+                      {myTeam === 'A' ? 'B팀' : 'A팀'}이 풀 문제를 출제하세요
+                    </h3>
+                    <div style={{marginBottom: '0.5rem', textAlign: 'right', color: currentCount === requiredCount ? '#22c55e' : '#ccc'}}>
+                      현재 작성한 개수: {currentCount} / {requiredCount}
+                    </div>
+                    <textarea 
+                      rows="6"
+                      placeholder={`예: 사과, 바나나, 포도, 수박... (정확히 ${requiredCount}개를 쉼표로 구분해서 적어주세요)`}
+                      value={manualWords}
+                      onChange={(e) => setManualWords(e.target.value)}
+                      style={{
+                        width: '100%', padding: '1rem', borderRadius: '12px', background: 'rgba(0,0,0,0.2)', 
+                        color: 'white', border: '1px solid var(--glass-border)', fontSize: '1.1rem',
+                        boxSizing: 'border-box', outline: 'none', resize: 'vertical'
+                      }}
+                    />
+                    <button 
+                      style={{marginTop: '1rem', background: currentCount === requiredCount ? '#22c55e' : 'gray'}}
+                      disabled={currentCount !== requiredCount}
+                      onClick={() => socket.emit('submitSpeedManual', manualWords)}
+                    >
+                      {currentCount === requiredCount ? '제출하기 ✅' : `정확히 ${requiredCount}개를 채워주세요`}
+                    </button>
+                    <p style={{fontSize: '0.85rem', color: '#888', marginTop: '0.5rem', textAlign: 'center'}}>
+                      ※ 팀원 중 한 명(주장)이 대표로 모아서 한 번에 제출하는 것을 권장합니다!
+                    </p>
+                  </div>
+                )
+              ) : (
+                <p>당신은 관전 중이므로 문제를 출제할 수 없습니다.</p>
+              )}
+            </>
+          );
+        })()}
 
         {gameState === 'speed_ready' && (
           <>

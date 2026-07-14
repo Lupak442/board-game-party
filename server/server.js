@@ -40,6 +40,9 @@ let maxPlayers = 8;
 
 // Speed Quiz State
 let speedQuiz = {
+  mode: 'ai', // 'ai' or 'manual'
+  submittedA: false,
+  submittedB: false,
   teams: {}, // { [userId]: 'A' | 'B' }
   timerSetting: 60,
   wordCountSetting: 24,
@@ -72,9 +75,11 @@ let liarGame = {
 const resetSpeedQuiz = () => {
   if (speedQuiz.timerInterval) clearInterval(speedQuiz.timerInterval);
   speedQuiz = {
+    mode: speedQuiz.mode || 'ai', // 보존
     teams: speedQuiz.teams, // 보존
     timerSetting: speedQuiz.timerSetting, // 보존
     wordCountSetting: speedQuiz.wordCountSetting || 24, // 보존
+    submittedA: false, submittedB: false,
     topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
   };
 };
@@ -85,6 +90,9 @@ const broadcastState = () => {
     gameState,
     maxPlayers,
     speedQuiz: {
+      mode: speedQuiz.mode,
+      submittedA: speedQuiz.submittedA,
+      submittedB: speedQuiz.submittedB,
       teams: speedQuiz.teams,
       timerSetting: speedQuiz.timerSetting,
       wordCountSetting: speedQuiz.wordCountSetting,
@@ -241,10 +249,61 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('setSpeedMode', (mode) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      speedQuiz.mode = mode;
+      broadcastState();
+    }
+  });
+
   socket.on('goSpeedTopic', () => {
     const user = users.find(u => u.id === socket.id);
     if (user && user.isHost) {
       gameState = 'speed_topic';
+      broadcastState();
+    }
+  });
+
+  socket.on('goSpeedManual', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      gameState = 'speed_manual_input';
+      broadcastState();
+    }
+  });
+
+  socket.on('submitSpeedManual', (wordsString) => {
+    const user = users.find(u => u.id === socket.id);
+    if (!user) return;
+    const team = speedQuiz.teams[user.id];
+    if (!team) return;
+
+    const words = wordsString.split(',').map(w => w.trim()).filter(w => w.length > 0);
+    const required = Math.floor((speedQuiz.wordCountSetting || 24) / 2);
+    if (words.length !== required) {
+      socket.emit('errorMsg', `정확히 ${required}개의 단어를 입력해주세요! (현재 ${words.length}개)`);
+      return;
+    }
+
+    if (team === 'A') {
+      speedQuiz.wordsB = words; // A팀이 내는 문제는 B팀이 푼다
+      speedQuiz.submittedA = true;
+    } else {
+      speedQuiz.wordsA = words; // B팀이 내는 문제는 A팀이 푼다
+      speedQuiz.submittedB = true;
+    }
+    broadcastState();
+  });
+
+  socket.on('goSpeedReadyFromManual', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      speedQuiz.currentTurn = 'A';
+      speedQuiz.currentIndex = 0;
+      speedQuiz.scoreA = 0;
+      speedQuiz.scoreB = 0;
+      gameState = 'speed_ready';
       broadcastState();
     }
   });
