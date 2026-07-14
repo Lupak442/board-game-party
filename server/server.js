@@ -32,15 +32,18 @@ const PORT = process.env.PORT || 3001;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'dummy_key');
 
 // Game State
-let users = []; // { id, name, isHost, score }
+let users = []; // { id, name, isHost, score, connected }
 let gameState = 'lobby'; 
 // lobby -> manitto -> liar_topic -> liar_role -> liar_discuss -> liar_vote -> liar_exec_vote -> liar_guess -> liar_result
 let manittoPairs = {}; // { [id]: targetName }
+let maxPlayers = 8;
 
 // Liar Game State
 let liarGame = {
+  mode: 'normal',
   topic: '',
   secretWord: '',
+  liarWord: '',
   liarName: '',
   votes: {}, // { [voterName]: targetName }
   execVotes: {}, // { [voterName]: boolean } // true = execute
@@ -54,10 +57,14 @@ const broadcastState = () => {
   io.emit('stateUpdate', {
     users,
     gameState,
+    maxPlayers,
     liarGame: {
+      mode: liarGame.mode,
       topic: liarGame.topic,
       targetName: liarGame.targetName,
       winner: liarGame.winner,
+      secretWord: gameState === 'liar_result' ? liarGame.secretWord : null,
+      liarWord: gameState === 'liar_result' ? liarGame.liarWord : null,
       votesCount: Object.keys(liarGame.votes).length,
       execVotesCount: Object.keys(liarGame.execVotes).length,
       votes: liarGame.votes,
@@ -69,7 +76,7 @@ const broadcastState = () => {
 
 const resetLiarGame = () => {
   liarGame = {
-    topic: '', secretWord: '', liarName: '', votes: {}, execVotes: {}, targetName: '', winner: '', discussCount: 0
+    mode: 'normal', topic: '', secretWord: '', liarWord: '', liarName: '', votes: {}, execVotes: {}, targetName: '', winner: '', discussCount: 0
   };
 };
 
@@ -87,18 +94,24 @@ io.on('connection', (socket) => {
       if (gameState === 'manitto') {
         socket.emit('manittoResult', manittoPairs[user.name]);
       } else if (['liar_role', 'liar_discuss', 'liar_vote', 'liar_exec_vote', 'liar_guess'].includes(gameState)) {
-        const role = user.name === liarGame.liarName ? 'liar' : 'citizen';
+        const isLiar = user.name === liarGame.liarName;
+        let wordToSend = null;
+        if (liarGame.mode === 'idiot') {
+          wordToSend = isLiar ? liarGame.liarWord : liarGame.secretWord;
+        } else {
+          wordToSend = isLiar ? null : liarGame.secretWord;
+        }
         socket.emit('liarRoleResult', {
-          role,
-          word: role === 'citizen' ? liarGame.secretWord : null
+          role: isLiar ? 'liar' : 'citizen',
+          word: wordToSend
         });
       }
       broadcastState();
       return;
     }
 
-    if (users.length >= 8) {
-      socket.emit('errorMsg', '방이 꽉 찼습니다. (최대 8명)');
+    if (users.length >= maxPlayers) {
+      socket.emit('errorMsg', `방이 꽉 찼습니다. (최대 ${maxPlayers}명)`);
       return;
     }
     if (gameState !== 'lobby') {
@@ -129,6 +142,16 @@ io.on('connection', (socket) => {
       if (nextHost) nextHost.isHost = true;
     }
     broadcastState();
+  });
+
+  socket.on('setMaxPlayers', (num) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      if (num >= 3 && num <= 8) {
+        maxPlayers = num;
+        broadcastState();
+      }
+    }
   });
 
   // --- Scoreboard ---
@@ -175,8 +198,9 @@ io.on('connection', (socket) => {
   });
 
   // --- Liar Game ---
-  socket.on('startLiarGame', () => {
+  socket.on('startLiarGame', (mode = 'normal') => {
     resetLiarGame();
+    liarGame.mode = mode;
     gameState = 'liar_topic';
     broadcastState();
   });
@@ -191,15 +215,32 @@ io.on('connection', (socket) => {
         throw new Error("GEMINI_API_KEY is not set.");
       }
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-      const prompt = `당신은 라이어 게임의 제시어 출제자입니다.
+      
+      if (liarGame.mode === 'idiot') {
+        const prompt = `당신은 바보 라이어 게임의 제시어 출제자입니다.
+사용자가 '${topic}'라는 주제(카테고리)를 주면, 해당 주제에 속하는 구체적이고 대중적인 명사(단어) 2개를 서로 비슷하지만 확실히 다른 단어로 추천해 주세요. (예: 사과와 배, 축구와 농구)
+반드시 아래 JSON 형식으로만 응답해 주세요. 부가 설명이나 코드 블록(백틱)은 절대 쓰지 마세요.
+{"citizen": "단어1", "liar": "단어2"}`;
+        const response = await model.generateContent(prompt);
+        let text = response.response.text().trim();
+        if (text.startsWith('\`\`\`')) {
+            text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        }
+        const data = JSON.parse(text);
+        liarGame.secretWord = data.citizen;
+        liarGame.liarWord = data.liar;
+      } else {
+        const prompt = `당신은 라이어 게임의 제시어 출제자입니다.
 사용자가 '${topic}'라는 주제(카테고리)를 주면, 해당 주제에 속하는 구체적이고 대중적인 명사(단어) 딱 1개만 무작위로 추천해 주세요.
 예시) 주제가 '과일'이면 '사과', 주제가 '국가이름'이면 '호주', 주제가 '직업'이면 '경찰관' 등.
 절대 카테고리 이름 자체를 말하거나 부가 설명을 붙이지 말고, 오직 구체적인 단어 1개만 대답하세요.`;
-      const result = await model.generateContent(prompt);
-      liarGame.secretWord = result.response.text().trim();
+        const result = await model.generateContent(prompt);
+        liarGame.secretWord = result.response.text().trim();
+      }
     } catch (e) {
       console.error(e);
-      liarGame.secretWord = '오류(기본단어)'; // Fallback
+      liarGame.secretWord = '오류(기본단어)';
+      if (liarGame.mode === 'idiot') liarGame.liarWord = '바보오류(기본단어)';
     }
 
     // Assign Roles
@@ -207,11 +248,18 @@ io.on('connection', (socket) => {
     liarGame.liarName = shuffled[0].name;
 
     users.forEach(u => {
-      const role = u.name === liarGame.liarName ? 'liar' : 'citizen';
+      const isLiar = u.name === liarGame.liarName;
+      let wordToSend = null;
+      if (liarGame.mode === 'idiot') {
+        wordToSend = isLiar ? liarGame.liarWord : liarGame.secretWord;
+      } else {
+        wordToSend = isLiar ? null : liarGame.secretWord;
+      }
+      
       if (u.connected) {
         io.to(u.id).emit('liarRoleResult', {
-          role,
-          word: role === 'citizen' ? liarGame.secretWord : null
+          role: isLiar ? 'liar' : 'citizen',
+          word: wordToSend
         });
       }
     });

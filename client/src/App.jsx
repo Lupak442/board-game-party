@@ -45,6 +45,11 @@ function App() {
       setUsers(state.users);
       setGameState(state.gameState);
       setLiarGameInfo(state.liarGame);
+      setLiarGameInfo(prev => ({ ...prev, maxPlayers: state.maxPlayers }));
+    });
+
+    socket.on('globalState', (state) => {
+      // We can also just send maxPlayers in stateUpdate as we did in server.js
     });
 
     socket.on('manittoResult', (target) => {
@@ -108,7 +113,23 @@ function App() {
         
         {gameState === 'lobby' && (
           <>
-            <h3>접속자 목록 ({users.length}/8)</h3>
+            <h3>접속자 목록 ({users.length}/{liarGameInfo.maxPlayers || 8})</h3>
+            
+            {isHost && (
+              <div style={{marginBottom: '1rem', background: 'rgba(255,255,255,0.1)', padding: '1rem', borderRadius: '10px'}}>
+                <label style={{display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem'}}>
+                  최대 인원 설정: <strong>{liarGameInfo.maxPlayers || 8}명</strong>
+                </label>
+                <input 
+                  type="range" 
+                  min="3" max="8" 
+                  value={liarGameInfo.maxPlayers || 8} 
+                  onChange={(e) => socket.emit('setMaxPlayers', parseInt(e.target.value))} 
+                  style={{width: '100%', accentColor: 'var(--accent-color)'}} 
+                />
+              </div>
+            )}
+
             <ul>
               {sortedUsers.map((u, index) => {
                 let rankClass = '';
@@ -135,8 +156,11 @@ function App() {
             
             {isHost && (
               <div style={{marginTop: '2rem'}}>
-                <button onClick={() => socket.emit('startManitto')}>마니또 뽑기</button>
-                <button onClick={() => socket.emit('startLiarGame')}>라이어 게임 시작</button>
+                <button style={{width: '100%', marginBottom: '0.5rem'}} onClick={() => socket.emit('startManitto')}>마니또 뽑기</button>
+                <div style={{display: 'flex', gap: '0.5rem'}}>
+                  <button className="danger" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'normal')}>일반 라이어 게임</button>
+                  <button className="primary" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'idiot')}>바보 라이어 게임</button>
+                </div>
               </div>
             )}
           </>
@@ -178,8 +202,11 @@ function App() {
             <p>주제: <strong>{liarGameInfo.topic}</strong></p>
             <FlipCard 
               frontText="터치해서 역할 확인하기"
-              backText={liarRole === 'liar' ? '당신은 라이어입니다' : `시민: ${liarWord}`}
-              isLiar={liarRole === 'liar'}
+              backText={liarGameInfo.mode === 'idiot' 
+                ? `당신의 단어: ${liarWord}`
+                : (liarRole === 'liar' ? '당신은 라이어입니다' : `시민: ${liarWord}`)
+              }
+              isLiar={liarGameInfo.mode !== 'idiot' && liarRole === 'liar'}
             />
             {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('startDiscuss')}>역할 확인 완료 (토론으로)</button>}
           </>
@@ -281,7 +308,15 @@ function App() {
             <div className="secret-word">
               {liarGameInfo.winner === 'liar' ? '라이어 승리!' : '시민 승리!'}
             </div>
-            <p>제시어: <strong>{liarWord}</strong></p>
+            {liarGameInfo.mode === 'idiot' ? (
+              <div style={{marginTop: '1rem'}}>
+                <p>시민 단어: <strong>{liarGameInfo.secretWord}</strong></p>
+                <p>라이어 단어: <strong>{liarGameInfo.liarWord}</strong></p>
+                <p style={{marginTop: '0.5rem', fontSize: '0.9rem', color: '#ccc'}}>(내 역할: {liarRole === 'liar' ? '라이어' : '시민'})</p>
+              </div>
+            ) : (
+              <p>제시어: <strong>{liarGameInfo.secretWord}</strong></p>
+            )}
             {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}
           </>
         )}
