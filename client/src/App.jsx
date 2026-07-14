@@ -408,38 +408,43 @@ function App() {
           </>
         )}
 
-        {gameState.startsWith('speed_playing') && (
-          <>
-            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1.2rem', fontWeight: 'bold'}}>
-              <span style={{color: speedQuizInfo?.timeLeft <= 10 ? 'var(--accent-color)' : 'inherit'}}>⏳ {speedQuizInfo?.timeLeft}초</span>
-              <span>{speedQuizInfo?.currentIndex + 1} / {speedQuizInfo?.totalWords}</span>
-            </div>
-            
-            <div style={{textAlign: 'center', padding: '3rem 1rem', background: 'rgba(255,255,255,0.1)', borderRadius: '15px', marginBottom: '2rem', minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-              <h1 style={{fontSize: '3rem', margin: 0, wordBreak: 'keep-all'}}>{speedQuizInfo?.currentWord || '종료'}</h1>
-            </div>
+        {gameState.startsWith('speed_playing') && (() => {
+          const word = speedQuizInfo?.currentWord || '종료';
+          const fontSize = word.length > 15 ? '1.5rem' : word.length > 8 ? '2rem' : '3rem';
+          
+          return (
+            <>
+              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1.2rem', fontWeight: 'bold'}}>
+                <span style={{color: speedQuizInfo?.timeLeft <= 10 ? 'var(--accent-color)' : 'inherit'}}>⏳ {speedQuizInfo?.timeLeft}초</span>
+                <span>{speedQuizInfo?.currentIndex + 1} / {speedQuizInfo?.totalWords}</span>
+              </div>
+              
+              <div style={{textAlign: 'center', padding: '3rem 1rem', background: 'rgba(255,255,255,0.1)', borderRadius: '15px', marginBottom: '2rem', minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                <h1 style={{fontSize, margin: 0, wordBreak: 'keep-all', lineHeight: '1.3'}}>{word}</h1>
+              </div>
 
-            <div style={{display: 'flex', justifyContent: 'center', gap: '2rem', marginBottom: '2rem'}}>
-              <div style={{textAlign: 'center'}}>
-                <div style={{fontSize: '0.9rem', color: '#ccc'}}>A팀 점수</div>
-                <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--accent-color)'}}>{speedQuizInfo?.scoreA}</div>
+              <div style={{display: 'flex', justifyContent: 'center', gap: '2rem', marginBottom: '2rem'}}>
+                <div style={{textAlign: 'center'}}>
+                  <div style={{fontSize: '0.9rem', color: '#ccc'}}>A팀 점수</div>
+                  <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--accent-color)'}}>{speedQuizInfo?.scoreA}</div>
+                </div>
+                <div style={{textAlign: 'center'}}>
+                  <div style={{fontSize: '0.9rem', color: '#ccc'}}>B팀 점수</div>
+                  <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: '#3b82f6'}}>{speedQuizInfo?.scoreB}</div>
+                </div>
               </div>
-              <div style={{textAlign: 'center'}}>
-                <div style={{fontSize: '0.9rem', color: '#ccc'}}>B팀 점수</div>
-                <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: '#3b82f6'}}>{speedQuizInfo?.scoreB}</div>
-              </div>
-            </div>
 
-            {isHost ? (
-              <div style={{display: 'flex', gap: '1rem'}}>
-                <button className="danger" style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem'}} onClick={() => socket.emit('speedPass')}>패스 ⏭️</button>
-                <button style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem', background: '#22c55e', borderColor: '#22c55e'}} onClick={() => socket.emit('speedCorrect')}>정답 ✅</button>
-              </div>
-            ) : (
-              <p style={{textAlign: 'center', color: '#ccc'}}>방장이 정답 여부를 판정합니다...</p>
-            )}
-          </>
-        )}
+              {isHost ? (
+                <div style={{display: 'flex', gap: '1rem'}}>
+                  <button className="danger" style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem'}} onClick={() => socket.emit('speedPass')}>패스 ⏭️</button>
+                  <button style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem', background: '#22c55e', borderColor: '#22c55e'}} onClick={() => socket.emit('speedCorrect')}>정답 ✅</button>
+                </div>
+              ) : (
+                <p style={{textAlign: 'center', color: '#ccc'}}>방장이 정답 여부를 판정합니다...</p>
+              )}
+            </>
+          );
+        })()}
 
         {gameState === 'speed_result' && (
           <>
