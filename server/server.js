@@ -265,9 +265,10 @@ io.on('connection', (socket) => {
       const half = Math.floor(total / 2);
 
       const prompt = `당신은 스피드 퀴즈 출제자입니다.
-주제 '${topic}'에 맞는 대중적이고 확실한 정답이 있는 명사 단어 ${total}개를 중복 없이 생성해주세요.
+주제 '${topic}'에 맞는 대중적이고 확실한 정답 ${total}개를 중복 없이 생성해주세요.
+(주제가 '속담'이나 '명대사' 같은 문장형이라면 짧은 문장으로, '영화'나 '동물' 같은 단어형이라면 명사 단어로 출력하세요.)
 반드시 아래와 같은 순수한 JSON 문자열 배열 형식으로만 응답해 주세요. 부가 설명이나 코드 블록(백틱)은 절대 쓰지 마세요.
-["단어1", "단어2", "단어3", ... "단어${total}"]`;
+["정답1", "정답2", "정답3", ... "정답${total}"]`;
       
       const response = await model.generateContent(prompt);
       let text = response.response.text().trim();
