@@ -42,6 +42,7 @@ let maxPlayers = 8;
 let speedQuiz = {
   teams: {}, // { [userId]: 'A' | 'B' }
   timerSetting: 60,
+  wordCountSetting: 24,
   topic: '',
   wordsA: [],
   wordsB: [],
@@ -73,6 +74,7 @@ const resetSpeedQuiz = () => {
   speedQuiz = {
     teams: speedQuiz.teams, // 보존
     timerSetting: speedQuiz.timerSetting, // 보존
+    wordCountSetting: speedQuiz.wordCountSetting || 24, // 보존
     topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
   };
 };
@@ -85,6 +87,7 @@ const broadcastState = () => {
     speedQuiz: {
       teams: speedQuiz.teams,
       timerSetting: speedQuiz.timerSetting,
+      wordCountSetting: speedQuiz.wordCountSetting,
       topic: speedQuiz.topic,
       scoreA: speedQuiz.scoreA,
       scoreB: speedQuiz.scoreB,
@@ -230,6 +233,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('setSpeedWordCount', (count) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      speedQuiz.wordCountSetting = count;
+      broadcastState();
+    }
+  });
+
   socket.on('goSpeedTopic', () => {
     const user = users.find(u => u.id === socket.id);
     if (user && user.isHost) {
@@ -249,10 +260,14 @@ io.on('connection', (socket) => {
     try {
       if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set.");
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      
+      const total = speedQuiz.wordCountSetting || 24;
+      const half = Math.floor(total / 2);
+
       const prompt = `당신은 스피드 퀴즈 출제자입니다.
-주제 '${topic}'에 맞는 대중적이고 확실한 정답이 있는 명사 단어 24개를 중복 없이 생성해주세요.
+주제 '${topic}'에 맞는 대중적이고 확실한 정답이 있는 명사 단어 ${total}개를 중복 없이 생성해주세요.
 반드시 아래와 같은 순수한 JSON 문자열 배열 형식으로만 응답해 주세요. 부가 설명이나 코드 블록(백틱)은 절대 쓰지 마세요.
-["단어1", "단어2", "단어3", "단어4", "단어5", "단어6", "단어7", "단어8", "단어9", "단어10", "단어11", "단어12", "단어13", "단어14", "단어15", "단어16", "단어17", "단어18", "단어19", "단어20", "단어21", "단어22", "단어23", "단어24"]`;
+["단어1", "단어2", "단어3", ... "단어${total}"]`;
       
       const response = await model.generateContent(prompt);
       let text = response.response.text().trim();
@@ -263,10 +278,10 @@ io.on('connection', (socket) => {
       if (!Array.isArray(words)) words = [];
       
       words.sort(() => Math.random() - 0.5);
-      while (words.length < 24) words.push('단어생성오류');
+      while (words.length < total) words.push('단어생성오류');
       
-      speedQuiz.wordsA = words.slice(0, 12);
-      speedQuiz.wordsB = words.slice(12, 24);
+      speedQuiz.wordsA = words.slice(0, half);
+      speedQuiz.wordsB = words.slice(half, total);
       
       speedQuiz.currentTurn = 'A';
       speedQuiz.currentIndex = 0;

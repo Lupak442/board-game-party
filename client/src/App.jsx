@@ -362,6 +362,14 @@ function App() {
                   onChange={(e) => socket.emit('setSpeedTimer', parseInt(e.target.value))}
                   style={{width: '100%', marginBottom: '1.5rem'}}
                 />
+                <label style={{display: 'block', marginBottom: '0.5rem'}}>문제 개수 설정: <strong>{speedQuizInfo?.wordCountSetting || 24}개</strong> (팀당 {(speedQuizInfo?.wordCountSetting || 24) / 2}개)</label>
+                <input 
+                  type="range" min="10" max="60" step="2" 
+                  value={speedQuizInfo?.wordCountSetting || 24} 
+                  onChange={(e) => socket.emit('setSpeedWordCount', parseInt(e.target.value))}
+                  style={{width: '100%', marginBottom: '1.5rem', accentColor: '#10b981'}}
+                />
+                
                 <button onClick={() => socket.emit('goSpeedTopic')}>주제 선정하기</button>
               </div>
             )}
@@ -381,7 +389,7 @@ function App() {
                   value={liarTopic} 
                   onChange={(e) => setLiarTopic(e.target.value)} 
                 />
-                <button onClick={() => socket.emit('setSpeedTopic', liarTopic)}>단어 생성 (총 24개)</button>
+                <button onClick={() => socket.emit('setSpeedTopic', liarTopic)}>단어 생성 (총 {speedQuizInfo?.wordCountSetting || 24}개)</button>
               </div>
             )}
           </>
@@ -390,7 +398,7 @@ function App() {
         {gameState === 'speed_loading' && (
           <div style={{textAlign: 'center', padding: '2rem 0'}}>
             <h2>단어 생성 중...</h2>
-            <p style={{marginTop: '1rem'}}>AI가 주제에 맞는 24개의 단어를<br/>열심히 생성하고 있습니다.</p>
+            <p style={{marginTop: '1rem'}}>AI가 주제에 맞는 {speedQuizInfo?.wordCountSetting || 24}개의 단어를<br/>열심히 생성하고 있습니다.</p>
           </div>
         )}
 
