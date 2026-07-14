@@ -38,6 +38,21 @@ let gameState = 'lobby';
 let manittoPairs = {}; // { [id]: targetName }
 let maxPlayers = 8;
 
+// Speed Quiz State
+let speedQuiz = {
+  teams: {}, // { [userId]: 'A' | 'B' }
+  timerSetting: 60,
+  topic: '',
+  wordsA: [],
+  wordsB: [],
+  scoreA: 0,
+  scoreB: 0,
+  currentTurn: 'A',
+  currentIndex: 0,
+  timeLeft: 0,
+  timerInterval: null
+};
+
 // Liar Game State
 let liarGame = {
   mode: 'normal',
@@ -53,11 +68,33 @@ let liarGame = {
 };
 
 // Helpers
+const resetSpeedQuiz = () => {
+  if (speedQuiz.timerInterval) clearInterval(speedQuiz.timerInterval);
+  speedQuiz = {
+    teams: speedQuiz.teams, // 보존
+    timerSetting: speedQuiz.timerSetting, // 보존
+    topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
+  };
+};
+
 const broadcastState = () => {
   io.emit('stateUpdate', {
     users,
     gameState,
     maxPlayers,
+    speedQuiz: {
+      teams: speedQuiz.teams,
+      timerSetting: speedQuiz.timerSetting,
+      topic: speedQuiz.topic,
+      scoreA: speedQuiz.scoreA,
+      scoreB: speedQuiz.scoreB,
+      currentTurn: speedQuiz.currentTurn,
+      currentIndex: speedQuiz.currentIndex,
+      timeLeft: speedQuiz.timeLeft,
+      currentWord: speedQuiz.currentTurn === 'A' ? speedQuiz.wordsA[speedQuiz.currentIndex] : speedQuiz.wordsB[speedQuiz.currentIndex],
+      totalWords: speedQuiz.currentTurn === 'A' ? speedQuiz.wordsA.length : speedQuiz.wordsB.length,
+      wordsGenerated: speedQuiz.wordsA.length > 0
+    },
     liarGame: {
       mode: liarGame.mode,
       topic: liarGame.topic,
@@ -147,7 +184,7 @@ io.on('connection', (socket) => {
   socket.on('setMaxPlayers', (num) => {
     const user = users.find(u => u.id === socket.id);
     if (user && user.isHost) {
-      if (num >= 3 && num <= 8) {
+      if (num >= 3 && num <= 12) {
         maxPlayers = num;
         broadcastState();
       }
@@ -161,6 +198,157 @@ io.on('connection', (socket) => {
       user.score += scoreChange;
       broadcastState();
     }
+  });
+
+  // --- Speed Quiz ---
+  socket.on('startSpeedQuizSetup', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      resetSpeedQuiz();
+      gameState = 'speed_team_select';
+      // Default assign teams if empty
+      users.forEach((u, i) => {
+        if (!speedQuiz.teams[u.id]) speedQuiz.teams[u.id] = i % 2 === 0 ? 'A' : 'B';
+      });
+      broadcastState();
+    }
+  });
+
+  socket.on('setSpeedTeam', ({ userId, team }) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      speedQuiz.teams[userId] = team;
+      broadcastState();
+    }
+  });
+
+  socket.on('setSpeedTimer', (seconds) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      speedQuiz.timerSetting = seconds;
+      broadcastState();
+    }
+  });
+
+  socket.on('goSpeedTopic', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      gameState = 'speed_topic';
+      broadcastState();
+    }
+  });
+
+  socket.on('setSpeedTopic', async (topic) => {
+    const user = users.find(u => u.id === socket.id);
+    if (!user || !user.isHost) return;
+
+    speedQuiz.topic = topic;
+    gameState = 'speed_loading';
+    broadcastState();
+
+    try {
+      if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not set.");
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const prompt = `당신은 스피드 퀴즈 출제자입니다.
+주제 '${topic}'에 맞는 대중적이고 확실한 정답이 있는 명사 단어 24개를 중복 없이 생성해주세요.
+반드시 아래와 같은 순수한 JSON 문자열 배열 형식으로만 응답해 주세요. 부가 설명이나 코드 블록(백틱)은 절대 쓰지 마세요.
+["단어1", "단어2", "단어3", "단어4", "단어5", "단어6", "단어7", "단어8", "단어9", "단어10", "단어11", "단어12", "단어13", "단어14", "단어15", "단어16", "단어17", "단어18", "단어19", "단어20", "단어21", "단어22", "단어23", "단어24"]`;
+      
+      const response = await model.generateContent(prompt);
+      let text = response.response.text().trim();
+      if (text.startsWith('\`\`\`')) {
+          text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+      }
+      let words = JSON.parse(text);
+      if (!Array.isArray(words)) words = [];
+      
+      words.sort(() => Math.random() - 0.5);
+      while (words.length < 24) words.push('단어생성오류');
+      
+      speedQuiz.wordsA = words.slice(0, 12);
+      speedQuiz.wordsB = words.slice(12, 24);
+      
+      speedQuiz.currentTurn = 'A';
+      speedQuiz.currentIndex = 0;
+      speedQuiz.scoreA = 0;
+      speedQuiz.scoreB = 0;
+      gameState = 'speed_ready'; // Ready to start Turn A
+      broadcastState();
+      
+    } catch (e) {
+      console.error(e);
+      socket.emit('errorMsg', '단어 생성 실패! 주제를 다시 입력해주세요.');
+      gameState = 'speed_topic';
+      broadcastState();
+    }
+  });
+
+  const handleSpeedTurnEnd = () => {
+    if (speedQuiz.timerInterval) clearInterval(speedQuiz.timerInterval);
+    if (speedQuiz.currentTurn === 'A') {
+      speedQuiz.currentTurn = 'B';
+      speedQuiz.currentIndex = 0;
+      gameState = 'speed_ready';
+    } else {
+      gameState = 'speed_result';
+    }
+    broadcastState();
+  };
+
+  const startSpeedTimer = () => {
+    if (speedQuiz.timerInterval) clearInterval(speedQuiz.timerInterval);
+    speedQuiz.timeLeft = speedQuiz.timerSetting;
+    gameState = speedQuiz.currentTurn === 'A' ? 'speed_playing_A' : 'speed_playing_B';
+    broadcastState();
+
+    speedQuiz.timerInterval = setInterval(() => {
+      speedQuiz.timeLeft--;
+      if (speedQuiz.timeLeft <= 0) {
+        clearInterval(speedQuiz.timerInterval);
+        speedQuiz.timeLeft = 0;
+        handleSpeedTurnEnd();
+      }
+      broadcastState();
+    }, 1000);
+  };
+
+  socket.on('startSpeedTurn', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      startSpeedTimer();
+    }
+  });
+
+  socket.on('speedCorrect', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (!user || !user.isHost) return;
+    if (!gameState.startsWith('speed_playing')) return;
+
+    if (speedQuiz.currentTurn === 'A') {
+      speedQuiz.scoreA++;
+      speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
+    } else {
+      speedQuiz.scoreB++;
+      speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
+    }
+    broadcastState();
+  });
+
+  socket.on('speedPass', () => {
+    const user = users.find(u => u.id === socket.id);
+    if (!user || !user.isHost) return;
+    if (!gameState.startsWith('speed_playing')) return;
+
+    if (speedQuiz.currentTurn === 'A') {
+      speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
+    } else {
+      speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
+    }
+    broadcastState();
   });
 
   // --- Manitto ---

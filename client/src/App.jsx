@@ -35,6 +35,7 @@ function App() {
   const [liarRole, setLiarRole] = useState(null);
   const [liarWord, setLiarWord] = useState('');
   const [liarGameInfo, setLiarGameInfo] = useState({});
+  const [speedQuizInfo, setSpeedQuizInfo] = useState({});
   const [guessWord, setGuessWord] = useState('');
 
   useEffect(() => {
@@ -46,6 +47,7 @@ function App() {
       setGameState(state.gameState);
       setLiarGameInfo(state.liarGame);
       setLiarGameInfo(prev => ({ ...prev, maxPlayers: state.maxPlayers }));
+      setSpeedQuizInfo(state.speedQuiz || {});
     });
 
     socket.on('globalState', (state) => {
@@ -122,7 +124,7 @@ function App() {
                 </label>
                 <input 
                   type="range" 
-                  min="3" max="8" 
+                  min="3" max="12" 
                   value={liarGameInfo.maxPlayers || 8} 
                   onChange={(e) => socket.emit('setMaxPlayers', parseInt(e.target.value))} 
                   style={{width: '100%', accentColor: 'var(--accent-color)'}} 
@@ -161,6 +163,7 @@ function App() {
                   <button className="danger" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'normal')}>일반 라이어 게임</button>
                   <button className="primary" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'idiot')}>바보 라이어 게임</button>
                 </div>
+                <button style={{width: '100%', marginTop: '0.5rem', background: '#8b5cf6', color: 'white'}} onClick={() => socket.emit('startSpeedQuizSetup')}>팀전 스피드 퀴즈</button>
               </div>
             )}
           </>
@@ -317,6 +320,146 @@ function App() {
             ) : (
               <p>제시어: <strong>{liarGameInfo.secretWord}</strong></p>
             )}
+            {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}
+          </>
+        )}
+
+        {/* --- Speed Quiz --- */}
+        {gameState === 'speed_team_select' && (
+          <>
+            <h2>스피드 퀴즈 설정</h2>
+            <div style={{display: 'flex', gap: '1rem', marginTop: '1rem'}}>
+              <div style={{flex: 1, background: 'rgba(244,63,94,0.1)', padding: '1rem', borderRadius: '10px'}}>
+                <h3 style={{color: 'var(--accent-color)'}}>A 팀</h3>
+                <ul style={{listStyle: 'none', padding: 0}}>
+                  {users.filter(u => speedQuizInfo?.teams?.[u.id] === 'A').map(u => (
+                    <li key={u.id} style={{marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <span>{u.name}</span>
+                      {isHost && <button style={{padding: '0.2rem 0.5rem', fontSize: '0.7rem'}} onClick={() => socket.emit('setSpeedTeam', {userId: u.id, team: 'B'})}>B팀으로 ➡️</button>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div style={{flex: 1, background: 'rgba(59,130,246,0.1)', padding: '1rem', borderRadius: '10px'}}>
+                <h3 style={{color: '#3b82f6'}}>B 팀</h3>
+                <ul style={{listStyle: 'none', padding: 0}}>
+                  {users.filter(u => speedQuizInfo?.teams?.[u.id] === 'B').map(u => (
+                    <li key={u.id} style={{marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      {isHost && <button style={{padding: '0.2rem 0.5rem', fontSize: '0.7rem'}} onClick={() => socket.emit('setSpeedTeam', {userId: u.id, team: 'A'})}>⬅️ A팀으로</button>}
+                      <span>{u.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {isHost && (
+              <div style={{marginTop: '2rem'}}>
+                <label style={{display: 'block', marginBottom: '0.5rem'}}>제한 시간 설정: <strong>{speedQuizInfo?.timerSetting}초</strong></label>
+                <input 
+                  type="range" min="60" max="180" step="30" 
+                  value={speedQuizInfo?.timerSetting || 60} 
+                  onChange={(e) => socket.emit('setSpeedTimer', parseInt(e.target.value))}
+                  style={{width: '100%', marginBottom: '1.5rem'}}
+                />
+                <button onClick={() => socket.emit('goSpeedTopic')}>주제 선정하기</button>
+              </div>
+            )}
+            {!isHost && <p style={{marginTop: '2rem'}}>방장이 팀과 시간을 설정 중입니다...</p>}
+          </>
+        )}
+
+        {gameState === 'speed_topic' && (
+          <>
+            <h2>스피드 퀴즈 주제</h2>
+            <p>방장이 주제를 선정중입니다...</p>
+            {isHost && (
+              <div style={{marginTop: '2rem'}}>
+                <input 
+                  type="text" 
+                  placeholder="예: 유명 영화, 속담, 사자성어" 
+                  value={liarTopic} 
+                  onChange={(e) => setLiarTopic(e.target.value)} 
+                />
+                <button onClick={() => socket.emit('setSpeedTopic', liarTopic)}>단어 생성 (총 24개)</button>
+              </div>
+            )}
+          </>
+        )}
+
+        {gameState === 'speed_loading' && (
+          <div style={{textAlign: 'center', padding: '2rem 0'}}>
+            <h2>단어 생성 중...</h2>
+            <p style={{marginTop: '1rem'}}>AI가 주제에 맞는 24개의 단어를<br/>열심히 생성하고 있습니다.</p>
+          </div>
+        )}
+
+        {gameState === 'speed_ready' && (
+          <>
+            <h2>준비!</h2>
+            <div className="secret-word" style={{color: speedQuizInfo?.currentTurn === 'A' ? 'var(--accent-color)' : '#3b82f6'}}>
+              {speedQuizInfo?.currentTurn} 팀 차례입니다
+            </div>
+            {isHost ? (
+              <button style={{marginTop: '2rem', padding: '1rem', fontSize: '1.2rem'}} onClick={() => socket.emit('startSpeedTurn')}>타이머 시작!</button>
+            ) : (
+              <p style={{marginTop: '2rem'}}>방장이 타이머를 시작하기를 기다리는 중...</p>
+            )}
+          </>
+        )}
+
+        {gameState.startsWith('speed_playing') && (
+          <>
+            <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1.2rem', fontWeight: 'bold'}}>
+              <span style={{color: speedQuizInfo?.timeLeft <= 10 ? 'var(--accent-color)' : 'inherit'}}>⏳ {speedQuizInfo?.timeLeft}초</span>
+              <span>{speedQuizInfo?.currentIndex + 1} / {speedQuizInfo?.totalWords}</span>
+            </div>
+            
+            <div style={{textAlign: 'center', padding: '3rem 1rem', background: 'rgba(255,255,255,0.1)', borderRadius: '15px', marginBottom: '2rem', minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+              <h1 style={{fontSize: '3rem', margin: 0, wordBreak: 'keep-all'}}>{speedQuizInfo?.currentWord || '종료'}</h1>
+            </div>
+
+            <div style={{display: 'flex', justifyContent: 'center', gap: '2rem', marginBottom: '2rem'}}>
+              <div style={{textAlign: 'center'}}>
+                <div style={{fontSize: '0.9rem', color: '#ccc'}}>A팀 점수</div>
+                <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: 'var(--accent-color)'}}>{speedQuizInfo?.scoreA}</div>
+              </div>
+              <div style={{textAlign: 'center'}}>
+                <div style={{fontSize: '0.9rem', color: '#ccc'}}>B팀 점수</div>
+                <div style={{fontSize: '1.8rem', fontWeight: 'bold', color: '#3b82f6'}}>{speedQuizInfo?.scoreB}</div>
+              </div>
+            </div>
+
+            {isHost ? (
+              <div style={{display: 'flex', gap: '1rem'}}>
+                <button className="danger" style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem'}} onClick={() => socket.emit('speedPass')}>패스 ⏭️</button>
+                <button style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem', background: '#22c55e', borderColor: '#22c55e'}} onClick={() => socket.emit('speedCorrect')}>정답 ✅</button>
+              </div>
+            ) : (
+              <p style={{textAlign: 'center', color: '#ccc'}}>방장이 정답 여부를 판정합니다...</p>
+            )}
+          </>
+        )}
+
+        {gameState === 'speed_result' && (
+          <>
+            <h2>게임 종료!</h2>
+            <div style={{display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2rem'}}>
+              <div style={{textAlign: 'center', flex: 1, background: 'rgba(244,63,94,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
+                <h3 style={{color: 'var(--accent-color)', margin: 0}}>A 팀</h3>
+                <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreA}점</div>
+              </div>
+              <div style={{textAlign: 'center', flex: 1, background: 'rgba(59,130,246,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
+                <h3 style={{color: '#3b82f6', margin: 0}}>B 팀</h3>
+                <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreB}점</div>
+              </div>
+            </div>
+            
+            <div className="secret-word" style={{marginTop: '2rem'}}>
+              {speedQuizInfo?.scoreA > speedQuizInfo?.scoreB ? 'A팀 우승! 🎉' : 
+               speedQuizInfo?.scoreB > speedQuizInfo?.scoreA ? 'B팀 우승! 🎉' : '무승부! 🤝'}
+            </div>
+
             {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}
           </>
         )}
