@@ -38,8 +38,20 @@ function App() {
   const [speedQuizInfo, setSpeedQuizInfo] = useState({});
   const [guessWord, setGuessWord] = useState('');
   const [manualWords, setManualWords] = useState('');
+  
+  // Initialize sessionId
+  const [sessionId, setSessionId] = useState(
+    localStorage.getItem('bgp_sessionId') || Math.random().toString(36).substring(2, 15)
+  );
 
   useEffect(() => {
+    localStorage.setItem('bgp_sessionId', sessionId);
+    const savedName = localStorage.getItem('bgp_name');
+    if (savedName) {
+      setName(savedName);
+      socket.emit('join', { name: savedName, sessionId });
+    }
+
     socket.on('joined', (u) => setUser(u));
     socket.on('errorMsg', (msg) => alert(msg));
     
@@ -80,7 +92,8 @@ function App() {
 
   const handleJoin = () => {
     if (name.trim() === '') return;
-    socket.emit('join', name);
+    localStorage.setItem('bgp_name', name);
+    socket.emit('join', { name, sessionId });
   };
 
   const isHost = users.find(u => u.id === user?.id)?.isHost;
@@ -159,7 +172,10 @@ function App() {
             
             {isHost && (
               <div style={{marginTop: '2rem'}}>
-                <button style={{width: '100%', marginBottom: '0.5rem'}} onClick={() => socket.emit('startManitto')}>마니또 뽑기</button>
+                <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
+                  <button style={{flex: 1, background: '#2563eb'}} onClick={() => socket.emit('startManitto', 'mutual')}>짝꿍 마니또 뽑기</button>
+                  <button style={{flex: 1, background: '#059669'}} onClick={() => socket.emit('startManitto', 'chain')}>랜덤 꼬리잡기 뽑기</button>
+                </div>
                 <div style={{display: 'flex', gap: '0.5rem'}}>
                   <button className="danger" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'normal')}>일반 라이어 게임</button>
                   <button className="primary" style={{flex: 1}} onClick={() => socket.emit('startLiarGame', 'idiot')}>바보 라이어 게임</button>
@@ -537,28 +553,37 @@ function App() {
           );
         })()}
 
-        {gameState === 'speed_result' && (
-          <>
-            <h2>게임 종료!</h2>
-            <div style={{display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2rem'}}>
-              <div style={{textAlign: 'center', flex: 1, background: 'rgba(244,63,94,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
-                <h3 style={{color: 'var(--accent-color)', margin: 0}}>A 팀</h3>
-                <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreA}점</div>
-              </div>
-              <div style={{textAlign: 'center', flex: 1, background: 'rgba(59,130,246,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
-                <h3 style={{color: '#3b82f6', margin: 0}}>B 팀</h3>
-                <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreB}점</div>
-              </div>
-            </div>
-            
-            <div className="secret-word" style={{marginTop: '2rem'}}>
-              {speedQuizInfo?.scoreA > speedQuizInfo?.scoreB ? 'A팀 우승! 🎉' : 
-               speedQuizInfo?.scoreB > speedQuizInfo?.scoreA ? 'B팀 우승! 🎉' : '무승부! 🤝'}
-            </div>
+        {gameState === 'speed_result' && (() => {
+          let winText = '무승부! 🤝';
+          if (speedQuizInfo?.scoreA > speedQuizInfo?.scoreB) winText = 'A팀 우승! 🎉';
+          else if (speedQuizInfo?.scoreB > speedQuizInfo?.scoreA) winText = 'B팀 우승! 🎉';
+          else if (speedQuizInfo?.elapsedA < speedQuizInfo?.elapsedB) winText = 'A팀 우승! 🎉 (더 빠름)';
+          else if (speedQuizInfo?.elapsedB < speedQuizInfo?.elapsedA) winText = 'B팀 우승! 🎉 (더 빠름)';
 
-            {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}
-          </>
-        )}
+          return (
+            <>
+              <h2>게임 종료!</h2>
+              <div style={{display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '2rem'}}>
+                <div style={{textAlign: 'center', flex: 1, background: 'rgba(244,63,94,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
+                  <h3 style={{color: 'var(--accent-color)', margin: 0}}>A 팀</h3>
+                  <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreA}점</div>
+                  <div style={{color: '#ccc'}}>{speedQuizInfo?.elapsedA}초 소요</div>
+                </div>
+                <div style={{textAlign: 'center', flex: 1, background: 'rgba(59,130,246,0.1)', padding: '2rem 1rem', borderRadius: '15px'}}>
+                  <h3 style={{color: '#3b82f6', margin: 0}}>B 팀</h3>
+                  <div style={{fontSize: '3rem', fontWeight: 'bold', margin: '1rem 0'}}>{speedQuizInfo?.scoreB}점</div>
+                  <div style={{color: '#ccc'}}>{speedQuizInfo?.elapsedB}초 소요</div>
+                </div>
+              </div>
+              
+              <div className="secret-word" style={{marginTop: '2rem'}}>
+                {winText}
+              </div>
+
+              {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

@@ -80,7 +80,9 @@ const resetSpeedQuiz = () => {
     timerSetting: speedQuiz.timerSetting, // 보존
     wordCountSetting: speedQuiz.wordCountSetting || 24, // 보존
     submittedA: false, submittedB: false,
-    topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
+    topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, 
+    elapsedA: 0, elapsedB: 0,
+    currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
   };
 };
 
@@ -99,6 +101,8 @@ const broadcastState = () => {
       topic: speedQuiz.topic,
       scoreA: speedQuiz.scoreA,
       scoreB: speedQuiz.scoreB,
+      elapsedA: speedQuiz.elapsedA,
+      elapsedB: speedQuiz.elapsedB,
       currentTurn: speedQuiz.currentTurn,
       currentIndex: speedQuiz.currentIndex,
       timeLeft: speedQuiz.timeLeft,
@@ -132,10 +136,25 @@ io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
   // Join Room
-  socket.on('join', (name) => {
-    let user = users.find(u => u.name === name);
+  socket.on('join', (data) => {
+    const isObject = typeof data === 'object';
+    const name = isObject ? data.name : data;
+    const sessionId = isObject ? data.sessionId : null;
+
+    if (!name || name.trim() === '') return;
+
+    let user = null;
+    if (sessionId) {
+      user = users.find(u => u.sessionId === sessionId);
+    }
+    if (!user) {
+      user = users.find(u => u.name === name);
+    }
+
     if (user) {
       user.id = socket.id;
+      if (sessionId) user.sessionId = sessionId;
+      user.name = name;
       user.connected = true;
       socket.emit('joined', user);
 
@@ -167,8 +186,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const isHost = users.length === 0;
-    user = { id: socket.id, name, isHost, score: 0, connected: true };
+    const isHost = users.length === 0 || users.every(u => !u.isHost);
+    user = { id: socket.id, sessionId, name, isHost, score: 0, connected: true };
     users.push(user);
     
     socket.emit('joined', user);
@@ -360,11 +379,15 @@ io.on('connection', (socket) => {
 
   const handleSpeedTurnEnd = () => {
     if (speedQuiz.timerInterval) clearInterval(speedQuiz.timerInterval);
+    const elapsed = speedQuiz.timerSetting - speedQuiz.timeLeft;
+    
     if (speedQuiz.currentTurn === 'A') {
+      speedQuiz.elapsedA = elapsed;
       speedQuiz.currentTurn = 'B';
       speedQuiz.currentIndex = 0;
       gameState = 'speed_ready';
     } else {
+      speedQuiz.elapsedB = elapsed;
       gameState = 'speed_result';
     }
     broadcastState();
@@ -399,14 +422,16 @@ io.on('connection', (socket) => {
     if (!user || !user.isHost) return;
     if (!gameState.startsWith('speed_playing')) return;
 
+    const maxScore = Math.floor((speedQuiz.wordCountSetting || 24) / 2);
+
     if (speedQuiz.currentTurn === 'A') {
       speedQuiz.scoreA++;
       speedQuiz.currentIndex++;
-      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
+      if (speedQuiz.scoreA >= maxScore) handleSpeedTurnEnd();
     } else {
       speedQuiz.scoreB++;
       speedQuiz.currentIndex++;
-      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
+      if (speedQuiz.scoreB >= maxScore) handleSpeedTurnEnd();
     }
     broadcastState();
   });
@@ -417,39 +442,49 @@ io.on('connection', (socket) => {
     if (!gameState.startsWith('speed_playing')) return;
 
     if (speedQuiz.currentTurn === 'A') {
+      const word = speedQuiz.wordsA[speedQuiz.currentIndex];
+      speedQuiz.wordsA.push(word);
       speedQuiz.currentIndex++;
-      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
     } else {
+      const word = speedQuiz.wordsB[speedQuiz.currentIndex];
+      speedQuiz.wordsB.push(word);
       speedQuiz.currentIndex++;
-      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
     }
     broadcastState();
   });
 
   // --- Manitto ---
-  socket.on('startManitto', () => {
+  socket.on('startManitto', (mode = 'mutual') => {
     if (users.length < 2) return;
     gameState = 'manitto';
     
-    // Mutual Pairing Algorithm
     let shuffled = [...users].sort(() => Math.random() - 0.5);
     manittoPairs = {};
     
-    for (let i = 0; i < Math.floor(shuffled.length / 2); i++) {
-      const u1 = shuffled[i * 2];
-      const u2 = shuffled[i * 2 + 1];
-      manittoPairs[u1.name] = u2.name;
-      manittoPairs[u2.name] = u1.name;
-    }
-    // If odd, the last person is a pair with themselves or we make a 3-way circle
-    if (shuffled.length % 2 !== 0) {
-      const last = shuffled[shuffled.length - 1];
-      const first = shuffled[0];
-      const second = shuffled[1];
-      // Break the first pair to make a 3-way cycle for the remaining 3
-      manittoPairs[first.name] = second.name;
-      manittoPairs[second.name] = last.name;
-      manittoPairs[last.name] = first.name;
+    if (mode === 'chain') {
+      for (let i = 0; i < shuffled.length; i++) {
+        const u1 = shuffled[i];
+        const u2 = shuffled[(i + 1) % shuffled.length];
+        manittoPairs[u1.name] = u2.name;
+      }
+    } else {
+      // Mutual Pairing Algorithm
+      for (let i = 0; i < Math.floor(shuffled.length / 2); i++) {
+        const u1 = shuffled[i * 2];
+        const u2 = shuffled[i * 2 + 1];
+        manittoPairs[u1.name] = u2.name;
+        manittoPairs[u2.name] = u1.name;
+      }
+      // If odd, the last person is a pair with themselves or we make a 3-way circle
+      if (shuffled.length % 2 !== 0) {
+        const last = shuffled[shuffled.length - 1];
+        const first = shuffled[0];
+        const second = shuffled[1];
+        // Break the first pair to make a 3-way cycle for the remaining 3
+        manittoPairs[first.name] = second.name;
+        manittoPairs[second.name] = last.name;
+        manittoPairs[last.name] = first.name;
+      }
     }
 
     // Send manitto target to each user individually
@@ -481,7 +516,8 @@ io.on('connection', (socket) => {
       
       if (liarGame.mode === 'idiot') {
         const prompt = `당신은 바보 라이어 게임의 제시어 출제자입니다.
-사용자가 '${topic}'라는 주제(카테고리)를 주면, 해당 주제에 속하는 구체적이고 대중적인 명사(단어) 2개를 서로 비슷하지만 확실히 다른 단어로 추천해 주세요. (예: 사과와 배, 축구와 농구)
+사용자가 '${topic}'라는 주제(카테고리)를 주면, 해당 주제에 속하는 대중적인 명사(단어) 2개를 추천해 주세요.
+단, 동의어나 너무 비슷한 단어(예: 아이스크림-젤라또)는 절대 금지입니다! 연관성은 있되 확연히 다른 특징을 가진 단어(예: 아이스크림-마카롱, 사과-포도)로 출제해주세요.
 반드시 아래 JSON 형식으로만 응답해 주세요. 부가 설명이나 코드 블록(백틱)은 절대 쓰지 마세요.
 {"citizen": "단어1", "liar": "단어2"}`;
         const response = await model.generateContent(prompt);
