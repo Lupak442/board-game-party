@@ -39,17 +39,32 @@ function App() {
   const [guessWord, setGuessWord] = useState('');
   const [manualWords, setManualWords] = useState('');
   
+  const isTestMode = window.location.search.includes('test=true');
+
   // Initialize sessionId
   const [sessionId, setSessionId] = useState(
-    localStorage.getItem('bgp_sessionId') || Math.random().toString(36).substring(2, 15)
+    isTestMode ? Math.random().toString(36).substring(2, 15) : (localStorage.getItem('bgp_sessionId') || Math.random().toString(36).substring(2, 15))
   );
 
   useEffect(() => {
-    localStorage.setItem('bgp_sessionId', sessionId);
+    if (!isTestMode) {
+      localStorage.setItem('bgp_sessionId', sessionId);
+    }
     const savedName = localStorage.getItem('bgp_name');
-    if (savedName) {
-      setName(savedName);
-      socket.emit('join', { name: savedName, sessionId });
+    
+    // Auto-join on initial mount AND on every socket reconnect
+    const autoJoin = () => {
+      if (savedName && !isTestMode) {
+        setName(savedName);
+        socket.emit('join', { name: savedName, sessionId });
+      }
+    };
+
+    socket.on('connect', autoJoin);
+    
+    // Also run once on mount in case it's already connected
+    if (socket.connected) {
+      autoJoin();
     }
 
     socket.on('joined', (u) => setUser(u));
@@ -81,9 +96,11 @@ function App() {
     });
 
     return () => {
+      socket.off('connect', autoJoin);
       socket.off('joined');
       socket.off('errorMsg');
       socket.off('stateUpdate');
+      socket.off('globalState');
       socket.off('manittoResult');
       socket.off('liarRoleResult');
       socket.off('liarRevealWord');
@@ -92,7 +109,9 @@ function App() {
 
   const handleJoin = () => {
     if (name.trim() === '') return;
-    localStorage.setItem('bgp_name', name);
+    if (!isTestMode) {
+      localStorage.setItem('bgp_name', name);
+    }
     socket.emit('join', { name, sessionId });
   };
 
@@ -181,6 +200,17 @@ function App() {
             
             {isHost && (
               <div style={{marginTop: '2rem'}}>
+                <div style={{marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <label>최대 인원 설정:</label>
+                  <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
+                    <button style={{padding: '0.3rem 0.6rem', fontSize: '0.8rem', background: '#4b5563'}} onClick={() => window.open('/?test=true', '_blank')}>
+                      새 탭으로 가상 유저 추가 (테스트)
+                    </button>
+                    <select value={liarGameInfo.maxPlayers || 8} onChange={(e) => socket.emit('setMaxPlayers', parseInt(e.target.value))}>
+                      {[2,3,4,5,6,7,8,9,10,11,12].map(n => <option key={n} value={n}>{n}명</option>)}
+                    </select>
+                  </div>
+                </div>
                 <div style={{display: 'flex', gap: '0.5rem', marginBottom: '0.5rem'}}>
                   <button style={{flex: 1, background: '#2563eb'}} onClick={() => socket.emit('startManitto', 'mutual')}>짝꿍 마니또 뽑기</button>
                   <button style={{flex: 1, background: '#059669'}} onClick={() => socket.emit('startManitto', 'chain')}>랜덤 꼬리잡기 뽑기</button>
