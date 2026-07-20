@@ -138,7 +138,7 @@ function App() {
                 </label>
                 <input 
                   type="range" 
-                  min="3" max="12" 
+                  min="2" max="12" 
                   value={liarGameInfo.maxPlayers || 8} 
                   onChange={(e) => socket.emit('setMaxPlayers', parseInt(e.target.value))} 
                   style={{width: '100%', accentColor: 'var(--accent-color)'}} 
@@ -157,14 +157,23 @@ function App() {
                 }
                 return (
                   <li key={u.id} className={`user-list-item ${rankClass}`}>
-                    <span>{u.name} {u.isHost && '👑'}</span>
-                    <span>{u.score} 점</span>
-                    {isHost && (
-                      <div className="score-control">
-                        <button className="score-btn danger" onClick={() => updateScore(u.id, -1)}>-</button>
-                        <button className="score-btn" onClick={() => updateScore(u.id, 1)}>+</button>
-                      </div>
-                    )}
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                      <span>{u.name} {u.isHost && '👑'}</span>
+                      {isHost && !u.isHost && (
+                        <button style={{padding: '0.2rem 0.5rem', fontSize: '0.7rem', width: 'auto'}} onClick={() => socket.emit('passHost', u.id)}>
+                          방장 위임
+                        </button>
+                      )}
+                    </div>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                      <span>{u.score} 점</span>
+                      {isHost && (
+                        <div className="score-control">
+                          <button className="score-btn danger" onClick={() => updateScore(u.id, -1)}>-</button>
+                          <button className="score-btn" onClick={() => updateScore(u.id, 1)}>+</button>
+                        </div>
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -504,21 +513,32 @@ function App() {
         {gameState === 'speed_ready' && (
           <>
             <h2>준비!</h2>
-            <div className="secret-word" style={{color: speedQuizInfo?.currentTurn === 'A' ? 'var(--accent-color)' : '#3b82f6'}}>
-              {speedQuizInfo?.currentTurn} 팀 차례입니다
-            </div>
-            {isHost ? (
-              <button style={{marginTop: '2rem', padding: '1rem', fontSize: '1.2rem'}} onClick={() => socket.emit('startSpeedTurn')}>타이머 시작!</button>
+            {speedQuizInfo?.currentTurn === 'A' ? (
+              <p>A팀 먼저 시작합니다.</p>
             ) : (
-              <p style={{marginTop: '2rem'}}>방장이 타이머를 시작하기를 기다리는 중...</p>
+              <div style={{background: 'rgba(255,255,255,0.1)', padding: '1.5rem', borderRadius: '10px', marginBottom: '1.5rem'}}>
+                <h3 style={{margin: '0 0 0.5rem 0', color: '#60a5fa'}}>A팀 기록 (B팀 타겟) 🎯</h3>
+                <p style={{margin: '0.5rem 0', fontSize: '1.2rem'}}>
+                  점수: <b>{speedQuizInfo?.scoreA}점</b> / 소요 시간: <b>{speedQuizInfo?.elapsedA}초</b>
+                </p>
+                <p style={{margin: '0.5rem 0 0 0', fontSize: '0.9rem', color: '#fbbf24', wordBreak: 'keep-all'}}>
+                  ※ B팀은 패스 횟수를 <b>{speedQuizInfo?.passedWordsA?.length}개 이하</b>로 유지해야 우승할 수 있습니다! 초과 시 패스 버튼이 비활성화됩니다.
+                </p>
+              </div>
             )}
+            <p>화면을 상대팀에게 보여주세요. 정답을 맞추면 방장이 '정답' 버튼을 누릅니다.</p>
+            {isHost && <button onClick={() => socket.emit('startSpeedTurn')}>시작하기</button>}
           </>
         )}
 
         {gameState.startsWith('speed_playing') && (() => {
+          const maxPasses = speedQuizInfo?.passedWordsA?.length || 0;
+          const currentPasses = speedQuizInfo?.passedWordsB?.length || 0;
+          const isPassDisabled = speedQuizInfo?.currentTurn === 'B' && currentPasses >= maxPasses;
+
           const word = speedQuizInfo?.currentWord || '종료';
           const fontSize = word.length > 15 ? '1.5rem' : word.length > 8 ? '2rem' : '3rem';
-          
+
           return (
             <>
               <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1.2rem', fontWeight: 'bold'}}>
@@ -543,7 +563,14 @@ function App() {
 
               {isHost ? (
                 <div style={{display: 'flex', gap: '1rem'}}>
-                  <button className="danger" style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem'}} onClick={() => socket.emit('speedPass')}>패스 ⏭️</button>
+                  <button 
+                    className="danger" 
+                    style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem', opacity: isPassDisabled ? 0.3 : 1}} 
+                    onClick={() => socket.emit('speedPass')}
+                    disabled={isPassDisabled}
+                  >
+                    패스 ⏭️
+                  </button>
                   <button style={{flex: 1, padding: '1.5rem', fontSize: '1.2rem', background: '#22c55e', borderColor: '#22c55e'}} onClick={() => socket.emit('speedCorrect')}>정답 ✅</button>
                 </div>
               ) : (
@@ -578,6 +605,21 @@ function App() {
               
               <div className="secret-word" style={{marginTop: '2rem'}}>
                 {winText}
+              </div>
+
+              <div style={{marginTop: '2rem', display: 'flex', gap: '1rem', textAlign: 'left'}}>
+                <div style={{flex: 1, background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '10px'}}>
+                  <h4 style={{margin: '0 0 0.5rem 0', color: '#ccc'}}>A팀 패스 목록 (버린 단어)</h4>
+                  {speedQuizInfo?.passedWordsA?.length > 0 ? (
+                    <div style={{color: '#888', wordBreak: 'keep-all', lineHeight: '1.4'}}>{speedQuizInfo.passedWordsA.join(', ')}</div>
+                  ) : <div style={{color: '#555'}}>패스 없음! 완벽!</div>}
+                </div>
+                <div style={{flex: 1, background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '10px'}}>
+                  <h4 style={{margin: '0 0 0.5rem 0', color: '#ccc'}}>B팀 패스 목록 (버린 단어)</h4>
+                  {speedQuizInfo?.passedWordsB?.length > 0 ? (
+                    <div style={{color: '#888', wordBreak: 'keep-all', lineHeight: '1.4'}}>{speedQuizInfo.passedWordsB.join(', ')}</div>
+                  ) : <div style={{color: '#555'}}>패스 없음! 완벽!</div>}
+                </div>
               </div>
 
               {isHost && <button style={{marginTop: '2rem'}} onClick={() => socket.emit('backToLobby')}>로비로 돌아가기</button>}

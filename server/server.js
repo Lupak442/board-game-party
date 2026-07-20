@@ -82,6 +82,7 @@ const resetSpeedQuiz = () => {
     submittedA: false, submittedB: false,
     topic: '', wordsA: [], wordsB: [], scoreA: 0, scoreB: 0, 
     elapsedA: 0, elapsedB: 0,
+    passedWordsA: [], passedWordsB: [],
     currentTurn: 'A', currentIndex: 0, timeLeft: 0, timerInterval: null
   };
 };
@@ -103,6 +104,8 @@ const broadcastState = () => {
       scoreB: speedQuiz.scoreB,
       elapsedA: speedQuiz.elapsedA,
       elapsedB: speedQuiz.elapsedB,
+      passedWordsA: speedQuiz.passedWordsA,
+      passedWordsB: speedQuiz.passedWordsB,
       currentTurn: speedQuiz.currentTurn,
       currentIndex: speedQuiz.currentIndex,
       timeLeft: speedQuiz.timeLeft,
@@ -214,8 +217,20 @@ io.on('connection', (socket) => {
   socket.on('setMaxPlayers', (num) => {
     const user = users.find(u => u.id === socket.id);
     if (user && user.isHost) {
-      if (num >= 3 && num <= 12) {
+      if (num >= 2 && num <= 12) {
         maxPlayers = num;
+        broadcastState();
+      }
+    }
+  });
+
+  socket.on('passHost', (targetId) => {
+    const user = users.find(u => u.id === socket.id);
+    if (user && user.isHost) {
+      const targetUser = users.find(u => u.id === targetId);
+      if (targetUser && targetUser.connected) {
+        user.isHost = false;
+        targetUser.isHost = true;
         broadcastState();
       }
     }
@@ -422,16 +437,14 @@ io.on('connection', (socket) => {
     if (!user || !user.isHost) return;
     if (!gameState.startsWith('speed_playing')) return;
 
-    const maxScore = Math.floor((speedQuiz.wordCountSetting || 24) / 2);
-
     if (speedQuiz.currentTurn === 'A') {
       speedQuiz.scoreA++;
       speedQuiz.currentIndex++;
-      if (speedQuiz.scoreA >= maxScore) handleSpeedTurnEnd();
+      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
     } else {
       speedQuiz.scoreB++;
       speedQuiz.currentIndex++;
-      if (speedQuiz.scoreB >= maxScore) handleSpeedTurnEnd();
+      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
     }
     broadcastState();
   });
@@ -443,12 +456,14 @@ io.on('connection', (socket) => {
 
     if (speedQuiz.currentTurn === 'A') {
       const word = speedQuiz.wordsA[speedQuiz.currentIndex];
-      speedQuiz.wordsA.push(word);
+      speedQuiz.passedWordsA.push(word);
       speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsA.length) handleSpeedTurnEnd();
     } else {
       const word = speedQuiz.wordsB[speedQuiz.currentIndex];
-      speedQuiz.wordsB.push(word);
+      speedQuiz.passedWordsB.push(word);
       speedQuiz.currentIndex++;
+      if (speedQuiz.currentIndex >= speedQuiz.wordsB.length) handleSpeedTurnEnd();
     }
     broadcastState();
   });
